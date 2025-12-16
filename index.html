@@ -126,31 +126,45 @@
         
         .notification {
             position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 0;
+            left: 0;
+            right: 0;
             background: #28a745;
             color: white;
-            padding: 15px 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
             display: none;
             z-index: 1000;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
         }
         
         .notification.show {
             display: block;
-            animation: slideDown 0.3s ease;
+            animation: slideDown 0.4s ease;
         }
         
         @keyframes slideDown {
             from {
-                transform: translateX(-50%) translateY(-100%);
+                transform: translateY(-100%);
                 opacity: 0;
             }
             to {
-                transform: translateX(-50%) translateY(0);
+                transform: translateY(0);
                 opacity: 1;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            .notification {
+                padding: 15px;
+                font-size: 14px;
             }
         }
     </style>
@@ -184,6 +198,26 @@
         let currentUserId = null;
         let lastColumnD = null;
         let checkInterval = null;
+        let notificationSound = null;
+
+        // دروستکردنی دەنگی ئاگادارکردنەوە
+        function createNotificationSound() {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+        }
 
         // Check for saved user ID on page load
         window.onload = function() {
@@ -194,9 +228,13 @@
                 loadUserData(savedId);
             }
             
-            // طلب إذن الإشعارات
+            // داواکردنی ڕێگەپێدان بۆ ناوتیفیکەیشن
             if ("Notification" in window && Notification.permission === "default") {
-                Notification.requestPermission();
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        showNotification("ناوتیفیکەیشن چالاک کرا ✓");
+                    }
+                });
             }
         };
 
@@ -291,16 +329,36 @@
                 if (data.success && data.data.D !== lastColumnD && lastColumnD !== null) {
                     const message = `نوێکردنەوە: کۆڵۆم D گۆڕا بۆ "${data.data.D}"`;
                     
+                    // دەنگی ئاگادارکردنەوە
+                    createNotificationSound();
+                    
                     // ناوتیفیکەیشنی ناو پەیج
                     showNotification(message);
                     
-                    // Browser Notification
+                    // Browser/Mobile Notification
                     if ("Notification" in window && Notification.permission === "granted") {
-                        new Notification("نوێکردنەوە لە Google Sheet", {
-                            body: message,
-                            icon: "https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png",
-                            badge: "https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png"
-                        });
+                        try {
+                            const notification = new Notification("🔔 نوێکردنەوە لە Google Sheet", {
+                                body: message,
+                                icon: "https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png",
+                                badge: "https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png",
+                                vibrate: [200, 100, 200],
+                                requireInteraction: true,
+                                tag: 'sheet-update'
+                            });
+                            
+                            notification.onclick = function() {
+                                window.focus();
+                                this.close();
+                            };
+                        } catch (e) {
+                            console.log('Notification error:', e);
+                        }
+                    }
+                    
+                    // Vibration لە مۆبایل
+                    if ('vibrate' in navigator) {
+                        navigator.vibrate([200, 100, 200]);
                     }
                     
                     lastColumnD = data.data.D;
@@ -350,6 +408,9 @@
             const notification = document.getElementById('notification');
             notification.textContent = message;
             notification.classList.add('show');
+            
+            // دەنگی ئاگادارکردنەوە
+            createNotificationSound();
             
             setTimeout(() => {
                 notification.classList.remove('show');
