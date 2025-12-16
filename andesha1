@@ -2,13 +2,19 @@
 <html lang="ku" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="بینەری داتا">
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIsio24zZhtin2LHbjCDYr9in2KrYpyIsCiAgInNob3J0X25hbWUiOiAi2KjbjNmG2KfYsduMIiwKICAic3RhcnRfdXJsIjogIi8iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiNmZmZmZmYiLAogICJ0aGVtZV9jb2xvciI6ICIjNjY3ZWVhIiwKICAiaWNvbnMiOiBbCiAgICB7CiAgICAgICJzcmMiOiAiaHR0cHM6Ly93d3cuZ3N0YXRpYy5jb20vaW1hZ2VzL2JyYW5kaW5nL3Byb2R1Y3QvMXgvc2hlZXRzXzIwMjBxNF8xOTJkcC5wbmciLAogICAgICAic2l6ZXMiOiAiMTkyeDE5MiIsCiAgICAgICJ0eXBlIjogImltYWdlL3BuZyIKICAgIH0sCiAgICB7CiAgICAgICJzcmMiOiAiaHR0cHM6Ly93d3cuZ3N0YXRpYy5jb20vaW1hZ2VzL2JyYW5kaW5nL3Byb2R1Y3QvMXgvc2hlZXRzXzIwMjBxNF81MTJkcC5wbmciLAogICAgICAic2l6ZXMiOiAiNTEyeDUxMiIsCiAgICAgICJ0eXBlIjogImltYWdlL3BuZyIKICAgIH0KICBdCn0=">
     <title>بینەری داتا</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
         
         body {
@@ -19,6 +25,9 @@
             justify-content: center;
             align-items: center;
             padding: 20px;
+            position: fixed;
+            width: 100%;
+            overflow: hidden;
         }
         
         .container {
@@ -28,6 +37,8 @@
             padding: 40px;
             max-width: 600px;
             width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
         }
         
         h1 {
@@ -104,10 +115,6 @@
             min-width: 100px;
         }
         
-        .logout-btn {
-            display: none;
-        }
-        
         .error {
             background: #fee;
             color: #c33;
@@ -134,7 +141,7 @@
             padding: 20px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
             display: none;
-            z-index: 1000;
+            z-index: 10000;
             text-align: center;
             font-size: 16px;
             font-weight: bold;
@@ -156,10 +163,47 @@
             }
         }
         
+        .install-prompt {
+            background: #667eea;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .install-prompt button {
+            margin-top: 10px;
+            background: white;
+            color: #667eea;
+        }
+        
+        .status-indicator {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            z-index: 9999;
+        }
+        
+        .status-indicator.online {
+            background: rgba(40, 167, 69, 0.9);
+        }
+        
         @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
             .container {
                 padding: 20px;
-                margin: 10px;
+                margin: 0;
+                border-radius: 10px;
             }
             
             .notification {
@@ -171,8 +215,14 @@
 </head>
 <body>
     <div class="notification" id="notification"></div>
+    <div class="status-indicator" id="statusIndicator">🔄 چێککردن...</div>
     
     <div class="container">
+        <div id="installPrompt" class="install-prompt" style="display:none;">
+            <div>📱 دایبگرە وەک ئەپ</div>
+            <button onclick="installApp()">دابگرە</button>
+        </div>
+        
         <!-- Login Form -->
         <div class="login-form active" id="loginForm">
             <h1>چوونەژوورەوە</h1>
@@ -192,35 +242,93 @@
     </div>
 
     <script>
-        // URL-ی Google Apps Script
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxNAR8sqXtFv14Z_gG4ICCmOwHzP2rDsgOXMR6Q3r0zkkZRC_-XFaUnwTyhpOldBCvE/exec';
         
         let currentUserId = null;
         let lastColumnD = null;
         let checkInterval = null;
-        let notificationSound = null;
+        let deferredPrompt = null;
+        let isOnline = navigator.onLine;
 
-        // دروستکردنی دەنگی ئاگادارکردنەوە
-        function createNotificationSound() {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            oscillator.frequency.value = 800;
-            oscillator.type = 'sine';
-            
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.5);
+        // Service Worker بۆ Background Notifications
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('data:text/javascript;base64,c2VsZi5hZGRFdmVudExpc3RlbmVyKCdpbnN0YWxsJywgZnVuY3Rpb24oZXZlbnQpIHsKICBzZWxmLnNraXBXYWl0aW5nKCk7Cn0pOwoKc2VsZi5hZGRFdmVudExpc3RlbmVyKCdhY3RpdmF0ZScsIGZ1bmN0aW9uKGV2ZW50KSB7CiAgcmV0dXJuIHNlbGYuY2xpZW50cy5jbGFpbSgpOwp9KTsKCnNlbGYuYWRkRXZlbnRMaXN0ZW5lcigncHVzaCcsIGZ1bmN0aW9uKGV2ZW50KSB7CiAgY29uc3Qgb3B0aW9ucyA9IHsKICAgIGJvZHk6IGV2ZW50LmRhdGEgPyBldmVudC5kYXRhLnRleHQoKSA6ICfZhtmI24zaqdin2LHYr9mG2YfZiNin2YYnLAogICAgaWNvbjogJ2h0dHBzOi8vd3d3LmdzdGF0aWMuY29tL2ltYWdlcy9icmFuZGluZy9wcm9kdWN0LzF4L3NoZWV0c18yMDIwcTRfNDhkcC5wbmcnLAogICAgdmlicmF0ZTogWzIwMCwgMTAwLCAyMDBdLAogICAgdGFnOiAnc2hlZXQtdXBkYXRlJwogIH07CiAgZXZlbnQud2FpdFVudGlsKAogICAgc2VsZi5yZWdpc3RyYXRpb24uc2hvd05vdGlmaWNhdGlvbign8J+UlCDZhtmI24zahtqp2LHYr9mG24zZiNin2YYnLCBvcHRpb25zKQogICk7Cn0pOw==')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.log('Service Worker registration failed'));
         }
 
-        // Check for saved user ID on page load
+        // دەنگی ئاگادارکردنەوە
+        function playNotificationSound() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.5);
+            } catch (e) {
+                console.log('Audio not supported');
+            }
+        }
+
+        // PWA Installation
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            document.getElementById('installPrompt').style.display = 'block';
+        });
+
+        function installApp() {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        document.getElementById('installPrompt').style.display = 'none';
+                    }
+                    deferredPrompt = null;
+                });
+            }
+        }
+
+        // بەدواداچوونی بەستنەوە
+        window.addEventListener('online', () => {
+            isOnline = true;
+            updateStatusIndicator();
+            if (currentUserId) startMonitoring();
+        });
+
+        window.addEventListener('offline', () => {
+            isOnline = false;
+            updateStatusIndicator();
+        });
+
+        function updateStatusIndicator() {
+            const indicator = document.getElementById('statusIndicator');
+            if (isOnline) {
+                indicator.textContent = '✓ بەستراوە';
+                indicator.className = 'status-indicator online';
+            } else {
+                indicator.textContent = '✗ بەستنەوە نییە';
+                indicator.className = 'status-indicator';
+            }
+            setTimeout(() => {
+                indicator.style.display = 'none';
+            }, 3000);
+        }
+
+        // بارکردنی یەکەم
         window.onload = function() {
+            updateStatusIndicator();
+            
             const savedId = localStorage.getItem('userId');
             if (savedId) {
                 currentUserId = savedId;
@@ -232,9 +340,14 @@
             if ("Notification" in window && Notification.permission === "default") {
                 Notification.requestPermission().then(permission => {
                     if (permission === "granted") {
-                        showNotification("ناوتیفیکەیشن چالاک کرا ✓");
+                        showNotification("✓ ناوتیفیکەیشن چالاک کرا");
                     }
                 });
+            }
+            
+            // Keep screen awake
+            if ('wakeLock' in navigator) {
+                navigator.wakeLock.request('screen').catch(err => console.log(err));
             }
         };
 
@@ -243,6 +356,11 @@
             
             if (!userId) {
                 showError('تکایە ID بنووسە');
+                return;
+            }
+            
+            if (!isOnline) {
+                showError('بەستنەوە نییە. تکایە ئینتەرنێت چێک بکە');
                 return;
             }
             
@@ -267,6 +385,11 @@
         }
 
         function loadUserData(userId) {
+            if (!isOnline) {
+                showError('بەستنەوە نییە');
+                return;
+            }
+            
             showLoading();
             
             fetch(`${SCRIPT_URL}?action=getUserData&id=${userId}`)
@@ -276,12 +399,14 @@
                         displayData(data.data);
                         startMonitoring();
                     } else {
-                        logout();
+                        localStorage.removeItem('userId');
+                        document.getElementById('dataView').classList.remove('active');
+                        document.getElementById('loginForm').classList.add('active');
                     }
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    logout();
+                    showError('هەڵە لە بارکردن');
                 });
         }
 
@@ -315,36 +440,33 @@
         }
 
         function startMonitoring() {
-            // هەر 30 چرکە جارێک چێک بکە
+            if (checkInterval) clearInterval(checkInterval);
             checkInterval = setInterval(checkForUpdates, 30000);
         }
 
         async function checkForUpdates() {
-            if (!currentUserId) return;
+            if (!currentUserId || !isOnline) return;
             
             try {
                 const response = await fetch(`${SCRIPT_URL}?action=getUserData&id=${currentUserId}`);
                 const data = await response.json();
                 
                 if (data.success && data.data.D !== lastColumnD && lastColumnD !== null) {
-                    const message = `نوێکردنەوە: کۆڵۆم D گۆڕا بۆ "${data.data.D}"`;
+                    const message = `🔔 نوێکردنەوە: کۆڵۆم D گۆڕا بۆ "${data.data.D}"`;
                     
-                    // دەنگی ئاگادارکردنەوە
-                    createNotificationSound();
-                    
-                    // ناوتیفیکەیشنی ناو پەیج
+                    playNotificationSound();
                     showNotification(message);
                     
-                    // Browser/Mobile Notification
                     if ("Notification" in window && Notification.permission === "granted") {
                         try {
-                            const notification = new Notification("🔔 نوێکردنەوە لە Google Sheet", {
+                            const notification = new Notification("🔔 نوێکردنەوە", {
                                 body: message,
                                 icon: "https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png",
                                 badge: "https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png",
-                                vibrate: [200, 100, 200],
+                                vibrate: [200, 100, 200, 100, 200],
                                 requireInteraction: true,
-                                tag: 'sheet-update'
+                                tag: 'sheet-update',
+                                silent: false
                             });
                             
                             notification.onclick = function() {
@@ -356,38 +478,20 @@
                         }
                     }
                     
-                    // Vibration لە مۆبایل
                     if ('vibrate' in navigator) {
-                        navigator.vibrate([200, 100, 200]);
+                        navigator.vibrate([200, 100, 200, 100, 200]);
                     }
                     
                     lastColumnD = data.data.D;
                     displayData(data.data);
                 }
                 
-                // تنظيم lastColumnD في أول فحص
                 if (lastColumnD === null && data.success) {
                     lastColumnD = data.data.D;
                 }
             } catch (error) {
                 console.error('Error checking updates:', error);
             }
-        }
-
-        function logout() {
-            localStorage.removeItem('userId');
-            currentUserId = null;
-            lastColumnD = null;
-            
-            if (checkInterval) {
-                clearInterval(checkInterval);
-                checkInterval = null;
-            }
-            
-            document.getElementById('dataView').classList.remove('active');
-            document.getElementById('loginForm').classList.add('active');
-            document.getElementById('userId').value = '';
-            document.getElementById('loginError').innerHTML = '';
         }
 
         function showError(message) {
@@ -409,13 +513,20 @@
             notification.textContent = message;
             notification.classList.add('show');
             
-            // دەنگی ئاگادارکردنەوە
-            createNotificationSound();
-            
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 5000);
         }
+
+        // Keep app alive in background
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && currentUserId) {
+                console.log('App in background, monitoring continues');
+            } else if (!document.hidden && currentUserId) {
+                console.log('App in foreground');
+                checkForUpdates();
+            }
+        });
     </script>
 </body>
 </html>
