@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ku" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بینەری داتا</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .login-form, .data-view {
+            display: none;
+        }
+        
+        .login-form.active, .data-view.active {
+            display: block;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: bold;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .data-item {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-right: 4px solid #667eea;
+        }
+        
+        .data-item strong {
+            color: #667eea;
+            display: inline-block;
+            min-width: 100px;
+        }
+        
+        .logout-btn {
+            display: none;
+        }
+        
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-right: 4px solid #c33;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #667eea;
+            font-size: 18px;
+            padding: 20px;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #28a745;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: none;
+            z-index: 1000;
+        }
+        
+        .notification.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+        
+        @keyframes slideDown {
+            from {
+                transform: translateX(-50%) translateY(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="notification" id="notification"></div>
+    
+    <div class="container">
+        <!-- Login Form -->
+        <div class="login-form active" id="loginForm">
+            <h1>چوونەژوورەوە</h1>
+            <div id="loginError"></div>
+            <div class="form-group">
+                <label for="userId">ID:</label>
+                <input type="text" id="userId" placeholder="ID-ی خۆت بنووسە">
+            </div>
+            <button onclick="login()">چوونەژوورەوە</button>
+        </div>
+        
+        <!-- Data View -->
+        <div class="data-view" id="dataView">
+            <h1>داتاکانت</h1>
+            <div id="dataContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // URL-ی Google Apps Script
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxNAR8sqXtFv14Z_gG4ICCmOwHzP2rDsgOXMR6Q3r0zkkZRC_-XFaUnwTyhpOldBCvE/exec';
+        
+        let currentUserId = null;
+        let lastColumnD = null;
+        let checkInterval = null;
+
+        // Check for saved user ID on page load
+        window.onload = function() {
+            const savedId = localStorage.getItem('userId');
+            if (savedId) {
+                currentUserId = savedId;
+                document.getElementById('userId').value = savedId;
+                loadUserData(savedId);
+            }
+            
+            // طلب إذن الإشعارات
+            if ("Notification" in window && Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+        };
+
+        async function login() {
+            const userId = document.getElementById('userId').value.trim();
+            
+            if (!userId) {
+                showError('تکایە ID بنووسە');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const response = await fetch(`${SCRIPT_URL}?action=getUserData&id=${userId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentUserId = userId;
+                    localStorage.setItem('userId', userId);
+                    displayData(data.data);
+                    startMonitoring();
+                } else {
+                    showError('ID نەدۆزرایەوە');
+                }
+            } catch (error) {
+                showError('هەڵە لە بەستنەوە. تکایە دووبارە هەوڵبدەرەوە');
+                console.error('Error:', error);
+            }
+        }
+
+        function loadUserData(userId) {
+            showLoading();
+            
+            fetch(`${SCRIPT_URL}?action=getUserData&id=${userId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayData(data.data);
+                        startMonitoring();
+                    } else {
+                        logout();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    logout();
+                });
+        }
+
+        function displayData(data) {
+            document.getElementById('loginForm').classList.remove('active');
+            document.getElementById('dataView').classList.add('active');
+            
+            let html = '';
+            const columns = ['A', 'B', 'C', 'D', 'E', 'F'];
+            const labels = {
+                'A': 'ID',
+                'B': 'کۆڵۆم B',
+                'C': 'کۆڵۆم C',
+                'D': 'کۆڵۆم D',
+                'E': 'کۆڵۆم E',
+                'F': 'مەسج'
+            };
+            
+            columns.forEach(col => {
+                if (data[col] !== undefined && data[col] !== null && data[col] !== '') {
+                    html += `
+                        <div class="data-item">
+                            <strong>${labels[col]}:</strong> ${data[col]}
+                        </div>
+                    `;
+                }
+            });
+            
+            document.getElementById('dataContent').innerHTML = html;
+            lastColumnD = data.D;
+        }
+
+        function startMonitoring() {
+            // هەر 30 چرکە جارێک چێک بکە
+            checkInterval = setInterval(checkForUpdates, 30000);
+        }
+
+        async function checkForUpdates() {
+            if (!currentUserId) return;
+            
+            try {
+                const response = await fetch(`${SCRIPT_URL}?action=getUserData&id=${currentUserId}`);
+                const data = await response.json();
+                
+                if (data.success && data.data.D !== lastColumnD && lastColumnD !== null) {
+                    const message = `نوێکردنەوە: کۆڵۆم D گۆڕا بۆ "${data.data.D}"`;
+                    
+                    // ناوتیفیکەیشنی ناو پەیج
+                    showNotification(message);
+                    
+                    // Browser Notification
+                    if ("Notification" in window && Notification.permission === "granted") {
+                        new Notification("نوێکردنەوە لە Google Sheet", {
+                            body: message,
+                            icon: "https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png",
+                            badge: "https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png"
+                        });
+                    }
+                    
+                    lastColumnD = data.data.D;
+                    displayData(data.data);
+                }
+                
+                // تنظيم lastColumnD في أول فحص
+                if (lastColumnD === null && data.success) {
+                    lastColumnD = data.data.D;
+                }
+            } catch (error) {
+                console.error('Error checking updates:', error);
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('userId');
+            currentUserId = null;
+            lastColumnD = null;
+            
+            if (checkInterval) {
+                clearInterval(checkInterval);
+                checkInterval = null;
+            }
+            
+            document.getElementById('dataView').classList.remove('active');
+            document.getElementById('loginForm').classList.add('active');
+            document.getElementById('userId').value = '';
+            document.getElementById('loginError').innerHTML = '';
+        }
+
+        function showError(message) {
+            document.getElementById('loginError').innerHTML = `
+                <div class="error">${message}</div>
+            `;
+            document.getElementById('dataContent').innerHTML = '';
+        }
+
+        function showLoading() {
+            document.getElementById('dataContent').innerHTML = `
+                <div class="loading">چاوەڕوان بە...</div>
+            `;
+            document.getElementById('loginError').innerHTML = '';
+        }
+
+        function showNotification(message) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
